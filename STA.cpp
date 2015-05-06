@@ -16,7 +16,7 @@ public:
 	QList<int> GateList;
 };
 QDebug& operator<<(QDebug& o, const Pin& p){
-	o << p.Name << ";" << p.WireList << ";" << p.GateList;
+	o << p.Name << ";" << p.Dir << ";" << p.WireList << ";" << p.GateList;
 	return o;
 }
 class Gate{
@@ -31,10 +31,23 @@ QDebug& operator<<(QDebug& o, const Gate& g){
 	o << "\t" << g.Pins << "\n";
 	return o;
 }
+class PinIndex{
+public:
+	int gIDX;
+	int pIDX;
+	PinIndex(int x, int y){
+		gIDX = x;
+		pIDX = y;
+	}
+};
+QDebug& operator<<(QDebug& o, const PinIndex& pid){
+	o << "PinIndex (" << pid.gIDX << ", " << pid.pIDX << ")";
+	return o;
+}
 class Wire{
 public:
 	QString Name;
-	QList<int> GateList;
+	QList<PinIndex> GateList;
 };
 QDebug& operator<<(QDebug& o, const Wire& w){
 	o << w.Name << "; " << w.GateList << "\n";
@@ -81,34 +94,33 @@ void ParseNetList(){
 		for(int s = cap[2].toInt(); s >= cap[3].toInt(); s--){
 			wt.Name = (cap[2] == "") ? cap[4] : (cap[4] + "[" + QString::number(s) + "]");
 			Wires[wt.Name] = wt;
-			if(cap[1] == "input" || cap[1] == "output"){		
+			if(cap[1] == "input" || cap[1] == "output"){
 				pt.Name = "Port";
 				pt.Dir = (cap[1] == "input") ? DirOutput : DirInput;
 				pt.WireList = gt.Name = wt.Name;
 				gt.Type = (cap[1] == "input") ? "InputPort" : "OutputPort";
-				Wires[wt.Name].GateList.push_back(DAG.size());
 				DAG.push_back(gt);
+				DAG.last().Pins.push_back(pt);
+				Wires[wt.Name].GateList.push_back(PinIndex(DAG.size() - 1, 0));
 			}
 		}
 		i++;
 	}
-	
 	//Parsing Gates
 	regex.setPattern("(\\S+)\\s+(\\S+)\\s*\\((.*)\\)");
 	while(regex.indexIn(lines[i]) != -1){
 		cap = regex.capturedTexts();
-		//qDebug() << cap;
 		QRegExp Param("\\.(\\S+)\\((\\S+)\\)", Qt::CaseSensitive);
 		gt.Name = cap[2];
 		gt.Type = cap[1];
+		DAG.push_back(gt);
 		for (QString p : cap[3].trimmed().split(QRegExp("\\s*,\\s*"))){
 			Param.indexIn(p);
 			pt.Name = Param.capturedTexts()[1];
 			pt.Dir = DirUnknown;
 			pt.WireList = Param.capturedTexts()[2];
-
-			Wires[pt.WireList].GateList.push_back(DAG.size());
-			qDebug() << p;
+			DAG.last().Pins.push_back(pt);
+			Wires[pt.WireList].GateList.push_back(PinIndex(DAG.size() - 1, DAG.last().Pins.size() - 1));
 		}
 		/*
 		Gate:
@@ -126,8 +138,9 @@ void ParseNetList(){
 		*/
 		i++;	
 	}
+	qDebug() << DAG;
+	qDebug() << Wires;
 }
-
 int main(){
 	QFile outFile("Out"); outFile.open(QFile::WriteOnly); QTextStream fout(&outFile);
 	ParseNetList();
