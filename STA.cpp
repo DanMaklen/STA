@@ -16,7 +16,7 @@ public:
 	QVector<int> GateList;
 };
 QDebug& operator<<(QDebug& o, const Pin& p){
-	return o << p.Name << ";" << WireList << ";" << GateList;
+	return o << p.Name << QString(";") << p.WireList << QString(";") << p.GateList;
 }
 
 class Gate{
@@ -64,7 +64,8 @@ void ParseNetList(){
 	//data = data.simplified();
 	
 	//Assuming only one module for now
-	regex.setPattern("module \\(")
+	QVector<QString> lines = data.split(";");
+	qDebug() << data;
 }
 
 int main(){
