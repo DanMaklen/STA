@@ -8,3 +8,6 @@ INCLUDEPATH += .
 
 # Input
 SOURCES += STA.cpp
+
+CONFIG += c++11
+#QMAKE_CXXFLAGS += -std=c++11
