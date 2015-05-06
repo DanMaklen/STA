@@ -39,7 +39,16 @@ public:
 		gIDX = x;
 		pIDX = y;
 	}
+	bool operator<(const PinIndex& pid) const{
+		return gIDX < pid.gIDX || (gIDX == pid.gIDX && pIDX < pid.pIDX);
+	}
+	bool operator==(const PinIndex& pid) const{
+		return gIDX == pid.gIDX && pIDX == pid.pIDX;
+	}
 };
+uint qHash(const PinIndex &p){
+	return p.gIDX + p.pIDX;
+}
 QDebug& operator<<(QDebug& o, const PinIndex& pid){
 	o << "PinIndex (" << pid.gIDX << ", " << pid.pIDX << ")";
 	return o;
@@ -59,8 +68,8 @@ QList<Gate> DAG;
 QMap<QString, Wire> Wires;
 
 void ParseNetList(){
-	//QFile inFile("mux_NetList.v");
-	QFile inFile("Test.v");
+	QFile inFile("mux_NetList.v");
+	//QFile inFile("Test.v");
 	inFile.open(QFile::ReadOnly);
 	QTextStream fin(&inFile);
 	QRegExp regex("", Qt::CaseSensitive); regex.setMinimal(true);
@@ -78,6 +87,7 @@ void ParseNetList(){
 	QList<QString> lines = data.split(";");
 
 	int i = 0;
+	Wire wt; Gate gt; Pin pt;
 	regex.setMinimal(false);
 	
 	regex.setPattern("module\\s+(\\S*)\\(.*\\)");	//Parsing Module Name
@@ -88,7 +98,6 @@ void ParseNetList(){
 
 	//Parsing Wires
 	regex.setPattern("(wire|input|output)\\s+(?:\\[(\\d+)\\:(\\d+)\\])?\\s*(\\S+)");
-	Wire wt; Gate gt; Pin pt;
 	while(regex.indexIn(lines[i]) != -1){
 		cap = regex.capturedTexts();
 		for(int s = cap[2].toInt(); s >= cap[3].toInt(); s--){
@@ -122,6 +131,15 @@ void ParseNetList(){
 			DAG.last().Pins.push_back(pt);
 			Wires[pt.WireList].GateList.push_back(PinIndex(DAG.size() - 1, DAG.last().Pins.size() - 1));
 		}
+		i++;	
+	}
+	//Parsing Assigns
+	regex.setPattern("assign(?:\\s+)(\\S+)(?:\\s*)=(?:\\s*)(\\S+)");
+	while(regex.indexIn(lines[i]) != -1){
+		cap = regex.capturedTexts();
+		Wires[cap[1]].GateList.append(Wires[cap[2]].GateList); Wires[cap[1]].GateList = Wires[cap[1]].GateList.toSet().toList();
+		Wires[cap[2]].GateList.append(Wires[cap[1]].GateList); Wires[cap[2]].GateList = Wires[cap[2]].GateList.toSet().toList();
+		qDebug() << cap;
 		/*
 		Gate:
 		QString Name;
@@ -136,10 +154,11 @@ void ParseNetList(){
 		QString Name;
 		QList<int> GateList;
 		*/
-		i++;	
+		i++;
 	}
 	qDebug() << DAG;
 	qDebug() << Wires;
+
 }
 int main(){
 	QFile outFile("Out"); outFile.open(QFile::WriteOnly); QTextStream fout(&outFile);
