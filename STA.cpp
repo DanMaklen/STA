@@ -84,10 +84,11 @@ void ParseNetList(){
 	qDebug() << lines[i];
 	while(regex.indexIn(lines[i]) != -1){
 		cap = regex.capturedTexts();
-		qDebug() << cap;
+
+		
+		
 		i++;
 	}
-	//while()
 	
 	
 }
