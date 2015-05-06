@@ -1,0 +1,11 @@
+yosys -p "write_verilog -noexpr mac_netlist.v" mac.v
+
+
+
+yosys
+read_verilog <Verilog file>
+synth
+dfflibmap -liberty <Liberty File>
+abc -liberty <Liberty File>
+clean
+write_verilog -noexpr <NetList File>
