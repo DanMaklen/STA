@@ -5,7 +5,8 @@
  capacitance model : typ
  other model :       typ
 */
-library ( osu035_stdcells ) {
+library(osu035_stdcells) {
+
   delay_model : table_lookup;
   in_place_swap_mode : match_footprint;
 
@@ -6632,4 +6633,4 @@ cell (PADFC) { area : 27000;  dont_touch : true; }
 cell (PADNC) { area : 27000;  dont_touch : true; }
 cell (PADVDD) { area : 27000; dont_touch : true; }
 cell (PADGND) { area : 27000; dont_touch : true; }
-} 
+}
