@@ -96,6 +96,7 @@ public:
 	QString RelatedTo;
 	QList<LookUpTable> tables;
 	void clear(int n){
+		RelatedTo = "";
 		tables.clear();
 		for(int i = 0; i < n; i++){
 			tables.push_back(LookUpTable());
@@ -140,6 +141,7 @@ public:
 	TimingTable SetupTiming;
 	TimingTable HoldTiming;
 	void clear(){
+		Name = "";
 		Type = CellGate;
 		Sizes.clear(); Sizes.push_back(0);
 		InputPins.clear(); InputPins.push_back(QList<CellPin>());
@@ -257,7 +259,7 @@ void ParseLiberty(const char* fpath){
 	data = data.trimmed(); //data = data.simplified();
 	CellClass ct; CellPin pt; TimingTable ttt;
 	ttt.clear(2);
-	for(QString c : data.split("cell(")) if(c != ""){ ct.clear();
+	for(QString c : data.split("cell(")) if(c != ""){ ct.clear(); ttt.clear(2);
 		//Cell Names
 		if(regex.setPattern("^([A-WY-Z1-9]+)X?([1-9])\\)\\{"), regex.indexIn(c) != -1){
 			cap = regex.capturedTexts();
@@ -328,15 +330,19 @@ void ParseLiberty(const char* fpath){
 				for(QString tim : p.split("timing()")){
 					regex.setPattern("\\s*related_pin:\"(.*)\";"); regex.indexIn(tim);
 					if(regex.capturedTexts()[0] == "") continue;
+					if(ttt.RelatedTo == "EN"&&ct.Name == "TBUF") continue;	//Hotfix for the 2 timings related to pin "EN" in TBuffs
 					ttt.RelatedTo = regex.capturedTexts()[1];
-					regex.setPattern("\\s*cell_rise\\{(.*)\\}\\s*rise_transition\\{(.*)\\}\\s*cell_fall\\{(.*)\\}\\s*fall_transition\\{(.*)\\}\\s*");
-					if(regex.indexIn(tim) != -1) cout << "ERROR!!!!!! UNABLE TO PARSE" << endl;
+					qDebug() << ttt.RelatedTo;
+					regex.setPattern("cell_rise\\{(.*)\\}"); regex.indexIn(tim);
 					ttt.tables[0] = ParseLUT(regex.capturedTexts()[1]);
-					ttt.tables[1] = ParseLUT(regex.capturedTexts()[3]);
+					regex.setPattern("cell_fall\\{(.*)\\}"); regex.indexIn(tim);
+					ttt.tables[1] = ParseLUT(regex.capturedTexts()[1]);
 					pt.DelayTable.push_back(ttt);
 
-					ttt.tables[0] = ParseLUT(regex.capturedTexts()[2]);
-					ttt.tables[1] = ParseLUT(regex.capturedTexts()[4]);
+					regex.setPattern("rise_transition\\{(.*)\\}"); regex.indexIn(tim);
+					ttt.tables[0] = ParseLUT(regex.capturedTexts()[1]);
+					regex.setPattern("fall_transition\\{(.*)\\}"); regex.indexIn(tim);
+					ttt.tables[1] = ParseLUT(regex.capturedTexts()[1]);
 					pt.SlewTable.push_back(ttt);
 				}
 			}
@@ -356,9 +362,7 @@ void ParseLiberty(const char* fpath){
 			NewFlag = false;
 		}
 		if(NewFlag) Class.push_back(ct);
-		break;
 	}
-	qDebug() << Class;
 }
 void ParseNetList(const char* fpath){
 	QFile inFile(fpath); inFile.open(QFile::ReadOnly); QTextStream fin(&inFile);
