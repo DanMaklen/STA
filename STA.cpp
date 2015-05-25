@@ -11,64 +11,11 @@ using namespace std;
 enum DirEnum{DirUnknown = 0, DirInput = 1, DirOutput = 2};
 enum CellType{CellGate = 0, CellDFF = 1, CellLatch = 2, CellInputPort = 3, CellOutputPort = 4};
 
-class Pin{
-public:
-	QString Name;
-	DirEnum Dir;
-	QString WireList;
-};
-QDebug& operator<<(QDebug& o, const Pin& p){
-	o << p.Name << ";" << p.Dir << ";" << p.WireList << ";";
-	return o;
-}
-class Gate{
-public:
-	QString Name;
-	QString Type;
-	QList<Pin> Pins;
-};
-QDebug& operator<<(QDebug& o, const Gate& g){
-	o << "Gate " << g.Name << "(" << g.Type << ") ";
-	o << "Pins\n";
-	o << "\t" << g.Pins << "\n";
-	return o;
-}
-class PinIndex{
-public:
-	int gIDX;
-	int pIDX;
-	PinIndex(int x, int y){
-		gIDX = x;
-		pIDX = y;
-	}
-	bool operator<(const PinIndex& pid) const{
-		return gIDX < pid.gIDX || (gIDX == pid.gIDX && pIDX < pid.pIDX);
-	}
-	bool operator==(const PinIndex& pid) const{
-		return gIDX == pid.gIDX && pIDX == pid.pIDX;
-	}
-};
-uint qHash(const PinIndex &p){
-	return p.gIDX + p.pIDX;
-}
-QDebug& operator<<(QDebug& o, const PinIndex& pid){
-	o << "PinIndex (" << pid.gIDX << ", " << pid.pIDX << ")";
-	return o;
-}
-class Wire{
-public:
-	QString Name;
-	QList<PinIndex> GateList;
-};
-QDebug& operator<<(QDebug& o, const Wire& w){
-	o << w.Name << "; " << w.GateList << "\n";
-	return o;
-}
 class LookUpTable{
 public:
 	int rows, cols;
 	QMap<double, int> rIndex;
-	QMap<double, double> cIndex;
+	QMap<double, int> cIndex;
 	double table[10][10];
 	LookUpTable& operator=(const LookUpTable& lut){
 		rows = lut.rows; cols = lut.cols;
@@ -80,6 +27,33 @@ public:
 		rows = cols = 0;
 		rIndex.clear(); cIndex.clear();
 		for(int i = 0; i < rows; i++) for(int j = 0; j < 10; j++) table[i][j] = 0;
+	}
+	double GetValue(double x, double y){
+		QMap<double, int>::iterator rit1, rit2;
+		rit1 = rIndex.lowerBound(x); rit2 = rIndex.upperBound(x);
+		QMap<double, int>::iterator cit1, cit2;
+		cit1 = cIndex.lowerBound(y); cit2 = cIndex.upperBound(y);
+		
+		if(rit1 == rit2){
+			if(rit1 == rIndex.end()) rit1--;
+			else if(rit1 == rIndex.begin()) rit2++;
+			else rit1--;
+		}
+		if(rit2 == rIndex.end()) {rit2--; rit2--;}
+		if(cit1 == cit2){
+			if(cit1 == cIndex.end()) cit1--;
+			else if(cit1 == cIndex.begin()) cit2++;
+			else cit1--;
+		}
+		if(cit2 == cIndex.end()) {cit2--; cit2--;}
+
+		double fact = 1.0 / ((rit2.key() - rit1.key()) * (cit2.key() - cit1.key()));
+		double f11 = table[rit1.value()][cit1.value()] * (rit2.key() - x) * (cit2.key() - y);
+		double f21 = table[rit2.value()][cit1.value()] * (x - rit1.key()) * (cit2.key() - y);
+		double f12 = table[rit1.value()][cit2.value()] * (rit2.key() - x) * (y - cit1.key());
+		double f22 = table[rit2.value()][cit2.value()] * (x - rit1.key()) * (y - cit1.key());
+
+		return fact * (f11 + f21 + f12 + f22);
 	}
 };
 QDebug& operator<<(QDebug& o, const LookUpTable& lut){
@@ -102,6 +76,16 @@ public:
 			tables.push_back(LookUpTable());
 			tables.back().clear();
 		}
+	}
+	double getMin(double x, double y){
+		double mn = 1e9;
+		for(LookUpTable& lut : tables) mn = min(mn, lut.GetValue(x, y));
+		return mn;
+	}
+	double getMax(double x, double y){
+		double mx = -1e9;
+		for(LookUpTable& lut : tables) mx = max(mx, lut.GetValue(x, y));
+		return mx;
 	}
 };
 QDebug& operator<<(QDebug& o, const TimingTable& tt){
@@ -135,33 +119,126 @@ class CellClass{
 public:
 	CellType Type;
 	QString Name;
-	QList<int> Sizes;
-	QList<QList<CellPin> > InputPins;
-	QList<QList<CellPin> > OutputPins;
+	QList<CellPin> InputPins;
+	QList<CellPin> OutputPins;
 	TimingTable SetupTiming;
 	TimingTable HoldTiming;
 	void clear(){
 		Name = "";
 		Type = CellGate;
-		Sizes.clear(); Sizes.push_back(0);
-		InputPins.clear(); InputPins.push_back(QList<CellPin>());
-		OutputPins.clear(); OutputPins.push_back(QList<CellPin>());
+		InputPins.clear();
+		OutputPins.clear();
 		SetupTiming.clear(2); HoldTiming.clear(2);
 	}
 };
 QDebug& operator <<(QDebug& o, const CellClass& c){
 	o << "\n********************\n";
-	o << c.Name << ' ' << c.Type << ' ' << c.Sizes << "\nInput Pins: " << c.InputPins << "\nOutput Pins: " << c.OutputPins;
+	o << c.Name << ' ' << c.Type << "\nInput Pins: " << c.InputPins << "\nOutput Pins: " << c.OutputPins;
 	if(c.Type == CellDFF || c.Type == CellLatch) o << "\nSetup: " << c.SetupTiming << "\nHold: " << c.HoldTiming;
 	o << "\n********************\n";
 	return o;
 }
 
+class Pin{
+public:
+	QString Name;
+	DirEnum Dir;
+	QString WireName;
+	CellPin* MyCellPin;
+	double MinCapLoad, MaxCapLoad;	//For input CapLoad exerted on previous stage, for output Capacitive load exterted on this pin
+	double MinDelay, MaxDelay;	//For input Accumlative Delay of previous stages, for output accumlative delay including this pin
+	double MinSlew, MaxSlew;	//For input input slew rate, for output output slew rate.
+	void SetAttr(QList<QString> lst){
+		MinDelay	= lst[2].toDouble();
+		MaxDelay	= lst[3].toDouble();
+		MinSlew 	= lst[4].toDouble();
+		MaxSlew 	= lst[5].toDouble();
+		MinCapLoad 	= lst[6].toDouble();
+		MaxCapLoad 	= lst[7].toDouble();
+	}
+};
+QDebug& operator<<(QDebug& o, const Pin& p){
+	if(p.Name == "Port")  o << p.Name << ";" << p.Dir << ";" << p.WireName << ";";
+	else o << p.Name << ";" << p.Dir << ";" << p.WireName << ";" << p.MyCellPin->Name;
+	o << "Cap(" << p.MinCapLoad << ", " << p.MaxCapLoad << ")\n";
+	o << "Delay(" << p.MinDelay << ", " << p.MaxDelay << ")\n";
+	o << "Slew(" << p.MinSlew << ", " << p.MaxSlew << ")\n";
+	return o;
+}
+class Gate{
+public:
+	QString Name;
+	CellType Type;
+	CellClass* MyClass;	//Index
+	QList<Pin> InputPins;
+	QList<Pin> OutputPins;
+};
+QDebug& operator<<(QDebug& o, const Gate& g){
+	if(g.Type == CellInputPort || g.Type == CellOutputPort) o << "Gate " << g.Name << "(" << g.Type << ") ";
+	else o << "Gate " << g.Name << "(" << g.Type << " " << g.MyClass->Name << ") ";
+	o << "Pins\n";
+	o << "InputPins: " << g.InputPins << "\n";
+	o << "OutputPins: " << g.OutputPins << "\n";
+	return o;
+}
+class PinIndex{
+public:
+	int gIDX;
+	int pIDX;
+	PinIndex(int x = -1, int y = -1){
+		gIDX = x;
+		pIDX = y;
+	}
+	bool operator<(const PinIndex& pid) const{
+		return gIDX < pid.gIDX || (gIDX == pid.gIDX && pIDX < pid.pIDX);
+	}
+	bool operator==(const PinIndex& pid) const{
+		return gIDX == pid.gIDX && pIDX == pid.pIDX;
+	}
+};
+uint qHash(const PinIndex &p){
+	return p.gIDX + p.pIDX;
+}
+QDebug& operator<<(QDebug& o, const PinIndex& pid){
+	o << "PinIndex (" << pid.gIDX << ", " << pid.pIDX << ")";
+	return o;
+}
+class Wire{
+public:
+	QString Name;
+	PinIndex InputGatePin;
+	QList<PinIndex> OutputGatePinList;
+	double MinWireCapacitance, MaxWireCapacitance;
+};
+QDebug& operator<<(QDebug& o, const Wire& w){
+	o << w.Name << "\t Capacitance: (" << w.MinWireCapacitance << ", " << w.MaxWireCapacitance << ")" << "\n InputGatePin: " << w.InputGatePin << "\n OutputGatePinList: "<< w.OutputGatePinList << "\n";
+	return o;
+}
+
+
+double ClockPeriod;
 QString ModuleName;
 QList<CellClass> Class;
 QList<Gate> DAG;
+QList<bool> vis;
 QMap<QString, Wire> Wires;
 
+void ClearVis(){
+	vis.clear();
+	for(int i = 0; i < DAG.size(); i++) vis.push_back(false);
+}
+CellClass* findClass(QString ClassName){
+	for(int i = 0; i < Class.size(); i++)
+		if(Class[i].Name == ClassName)
+			return &Class[i];
+	return 0;
+}
+Pin* findPin(QString PinName, QList<Pin>* PinList){
+	for(int i = 0; i < PinList->size(); i++)
+		if((*PinList)[i].Name == PinName)
+			return &(*PinList)[i];
+	return 0;
+}
 LookUpTable ParseLUT(QString str){
 	QRegExp regex("", Qt::CaseSensitive);
 	QList<QString> tlst;
@@ -214,7 +291,11 @@ void ParseLiberty(const char* fpath){
 		regex.setMinimal(true);
 		regex.setPattern("\\s*\\S+_template\\(\\S*_template_\\S*\\) \\{.*\\}"); data = data.remove(regex);
 		regex.setPattern("\\(\\S*_template_\\S*\\)"); data = data.remove(regex);
-		regex.setPattern("internal_power\\(\\)\\s*\\{.*\\{.*\\}.*\\{.*\\}.*\\}"); data = data.remove(regex);
+		regex.setPattern("\\s*internal_power\\(\\) \\{\\s*(related_pin : \\S*;)?\\s*rise_power \\{.*;.*;\\s*\\}\\s*fall_power \\{.*;.*;\\s*\\}\\s*\\}"); data = data.remove(regex);
+		regex.setPattern("\\s*internal_power\\(\\) \\{\\s*(related_pin : \\S*;)?\\s*fall_power \\{.*;.*;\\s*\\}\\s*rise_power \\{.*;.*;\\s*\\}\\s*\\}"); data = data.remove(regex);
+		regex.setPattern("\\s*internal_power\\(\\) \\{\\s*(related_pin : \\S*;)?\\s*rise_power \\{.*;.*;.*;\\s*\\}\\s*fall_power \\{.*;.*;.*;\\s*\\}\\s*\\}"); data = data.remove(regex);
+		regex.setPattern("\\s*internal_power\\(\\) \\{\\s*(related_pin : \\S*;)?\\s*fall_power \\{.*;.*;.*;\\s*\\}\\s*rise_power \\{.*;.*;.*;\\s*\\}\\s*\\}"); data = data.remove(regex);
+		regex.setPattern("\\s*internal_power\\(\\) \\{\\s*(related_pin : \\S*;)?\\s*power \\{.*;.*;.*;\\s*\\}\\s*\\}"); data = data.remove(regex);
 		regex.setPattern("\\s+pad_cell :.*;"); data = data.remove(regex);
 		regex.setPattern("\\s+is_pad :.*;"); data = data.remove(regex);
 		regex.setPattern("\\s+drive_current :.*;"); data = data.remove(regex);
@@ -255,33 +336,23 @@ void ParseLiberty(const char* fpath){
 	}
 
 	//Extracting data
-	regex.setMinimal(false);
+	regex.setMinimal(true);
 	data = data.trimmed(); //data = data.simplified();
 	CellClass ct; CellPin pt; TimingTable ttt;
 	ttt.clear(2);
+	//Cells
 	for(QString c : data.split("cell(")) if(c != ""){ ct.clear(); ttt.clear(2);
 		//Cell Names
-		if(regex.setPattern("^([A-WY-Z1-9]+)X?([1-9])\\)\\{"), regex.indexIn(c) != -1){
+		if(regex.setPattern("^(.*)\\)\\{"), regex.indexIn(c) != -1){
 			cap = regex.capturedTexts();
 			ct.Name = cap[1];
-			ct.Sizes[0] = cap[2].toInt();
-		}
-		else if(regex.setPattern("^([A-Z1-9]+)X([1-9])\\)\\{"), regex.indexIn(c) != -1){
-			cap = regex.capturedTexts();
-			ct.Name = cap[1];
-			ct.Sizes[0] = cap[2].toInt();
-		}
-		else if(regex.setPattern("^([A-Z1-9]+)\\)\\{"), regex.indexIn(c) != -1){
-			cap = regex.capturedTexts();
-			ct.Name = cap[1];
-			ct.Sizes[0] = 1;
 		}
 		else{
 			qDebug() << c.left(10).simplified() << "\t Unable to parse!";
 			continue;
 		}
 		
-		if(ct.Name == "PADINOUT" || ct.Name == "DFFSR") continue;
+		if(ct.Name == "PADINOUT") continue;
 
 		//Type
 		if(regex.setPattern("\\s+_IsDFF_\\s+"), regex.indexIn(c) != -1) ct.Type = CellDFF;
@@ -332,7 +403,6 @@ void ParseLiberty(const char* fpath){
 					if(regex.capturedTexts()[0] == "") continue;
 					if(ttt.RelatedTo == "EN"&&ct.Name == "TBUF") continue;	//Hotfix for the 2 timings related to pin "EN" in TBuffs
 					ttt.RelatedTo = regex.capturedTexts()[1];
-					qDebug() << ttt.RelatedTo;
 					regex.setPattern("cell_rise\\{(.*)\\}"); regex.indexIn(tim);
 					ttt.tables[0] = ParseLUT(regex.capturedTexts()[1]);
 					regex.setPattern("cell_fall\\{(.*)\\}"); regex.indexIn(tim);
@@ -348,20 +418,13 @@ void ParseLiberty(const char* fpath){
 			}
 
 			//Pushing Pin
-			if(pt.Dir == DirInput) ct.InputPins[0].push_back(pt);
-			else if(pt.Dir == DirOutput) ct.OutputPins[0].push_back(pt);
+			if(pt.Dir == DirInput) ct.InputPins.push_back(pt);
+			else if(pt.Dir == DirOutput) ct.OutputPins.push_back(pt);
 		}
 		//qDebug() << ct;
 		
 		//Add To List of Cell Classes
-		bool NewFlag = true;
-		for(CellClass& cc : Class) if(cc.Name == ct.Name){
-			cc.Sizes.push_back(ct.Sizes[0]);
-			cc.InputPins.push_back(ct.InputPins[0]);
-			cc.OutputPins.push_back(ct.OutputPins[0]);
-			NewFlag = false;
-		}
-		if(NewFlag) Class.push_back(ct);
+		Class.push_back(ct);
 	}
 }
 void ParseNetList(const char* fpath){
@@ -385,6 +448,14 @@ void ParseNetList(const char* fpath){
 
 	int i = 0;
 	Wire wt; Gate gt; Pin pt;
+	pt.MinDelay		= 0;
+	pt.MaxDelay		= 0;
+	pt.MinSlew 		= 0;
+	pt.MaxSlew 		= 0;
+	pt.MinCapLoad 	= 0;
+	pt.MaxCapLoad 	= 0;
+	wt.MinWireCapacitance = 0;
+	wt.MaxWireCapacitance = 0;
 	regex.setMinimal(false);
 	
 	regex.setPattern("module\\s+(\\S*)\\(.*\\)");	//Parsing Module Name
@@ -403,11 +474,15 @@ void ParseNetList(const char* fpath){
 			if(cap[1] == "input" || cap[1] == "output"){
 				pt.Name = "Port";
 				pt.Dir = (cap[1] == "input") ? DirOutput : DirInput;
-				pt.WireList = gt.Name = wt.Name;
-				gt.Type = (cap[1] == "input") ? "InputPort" : "OutputPort";
+				pt.WireName = gt.Name = wt.Name;
+				gt.Type = (cap[1] == "input") ? CellInputPort : CellOutputPort;
+				gt.MyClass = 0;
+				pt.MyCellPin = 0;
 				DAG.push_back(gt);
-				DAG.last().Pins.push_back(pt);
-				Wires[wt.Name].GateList.push_back(PinIndex(DAG.size() - 1, 0));
+				if(cap[1] == "input") DAG.last().OutputPins.push_back(pt);
+				else DAG.last().InputPins.push_back(pt);
+				if(cap[1] == "input") Wires[wt.Name].InputGatePin = PinIndex(DAG.size() - 1, 0);
+				else Wires[wt.Name].OutputGatePinList.push_back(PinIndex(DAG.size() - 1, 0));
 			}
 		}
 		i++;
@@ -418,15 +493,27 @@ void ParseNetList(const char* fpath){
 		cap = regex.capturedTexts();
 		QRegExp Param("\\.(\\S+)\\((\\S+)\\)", Qt::CaseSensitive);
 		gt.Name = cap[2];
-		gt.Type = cap[1];
+		gt.MyClass = findClass(cap[1]); if(!gt.MyClass) {qDebug() << cap[1] << " gate is not supported"; return;}
+		gt.Type = gt.MyClass->Type;
 		DAG.push_back(gt);
 		for (QString p : cap[3].trimmed().split(QRegExp("\\s*,\\s*"))){
 			Param.indexIn(p);
 			pt.Name = Param.capturedTexts()[1];
-			pt.Dir = DirUnknown;
-			pt.WireList = Param.capturedTexts()[2];
-			DAG.last().Pins.push_back(pt);
-			Wires[pt.WireList].GateList.push_back(PinIndex(DAG.size() - 1, DAG.last().Pins.size() - 1));
+			pt.MyCellPin = 0;
+			for(int i = 0; !pt.MyCellPin && i < gt.MyClass->InputPins.size(); i++)
+				if(gt.MyClass->InputPins[i].Name == pt.Name)
+					pt.MyCellPin = &gt.MyClass->InputPins[i];
+			for(int i = 0; !pt.MyCellPin && i < gt.MyClass->OutputPins.size(); i++)
+				if(gt.MyClass->OutputPins[i].Name == pt.Name)
+					pt.MyCellPin = &gt.MyClass->OutputPins[i];
+			if(!pt.MyCellPin) {qDebug() << pt.Name << " gate pins are undefined for gate " << gt.MyClass->Name; return;}
+			pt.Dir = pt.MyCellPin->Dir;
+			
+			pt.WireName = Param.capturedTexts()[2];
+			if(pt.Dir == DirInput) DAG.last().InputPins.push_back(pt);
+			else DAG.last().OutputPins.push_back(pt);
+			if(pt.Dir == DirInput) Wires[pt.WireName].OutputGatePinList.push_back(PinIndex(DAG.size() - 1, DAG.last().InputPins.size() - 1));
+			else Wires[pt.WireName].InputGatePin = PinIndex(DAG.size() - 1, DAG.last().OutputPins.size() - 1);
 		}
 		i++;	
 	}
@@ -434,13 +521,132 @@ void ParseNetList(const char* fpath){
 	regex.setPattern("assign(?:\\s+)(\\S+)(?:\\s*)=(?:\\s*)(\\S+)");
 	while(regex.indexIn(lines[i]) != -1){
 		cap = regex.capturedTexts();
-		Wires[cap[1]].GateList.append(Wires[cap[2]].GateList); Wires[cap[1]].GateList = Wires[cap[1]].GateList.toSet().toList();
-		Wires[cap[2]].GateList.append(Wires[cap[1]].GateList); Wires[cap[2]].GateList = Wires[cap[2]].GateList.toSet().toList();
+		Wires[cap[1]].OutputGatePinList.append(Wires[cap[2]].OutputGatePinList); Wires[cap[1]].OutputGatePinList = Wires[cap[1]].OutputGatePinList.toSet().toList();
+		Wires[cap[2]].OutputGatePinList.append(Wires[cap[1]].OutputGatePinList); Wires[cap[2]].OutputGatePinList = Wires[cap[2]].OutputGatePinList.toSet().toList();
 		i++;
 	}
-	qDebug() << DAG;
-	qDebug() << Wires;
+}
+void ParseConstrain(const char* fpath){
+	QFile inFile(fpath); inFile.open(QFile::ReadOnly); QTextStream fin(&inFile);
+	QRegExp regex("", Qt::CaseSensitive);
+	QList<QString> cap;
+	QString data = fin.readAll();
+	int i = 0;
+
+	regex.setPattern("\\s*\n\n+\\s*");
+	data.replace(regex, "\n");
+	QList<QString> lst = data.split("\n");
+
+	//ClockPeriod
+	regex.setPattern("CLOCK (.*);"); regex.indexIn(lst[i]);
+	ClockPeriod = regex.capturedTexts()[1].toDouble();
+	i++;
+
+	//Ports
+	regex.setPattern("NET (\\S+) \\{Delay:(.*),(.*);Slew:(.*),(.*);Cap:(.*),(.*)\\};");
+	while(regex.indexIn(lst[i]) != -1){
+		cap = regex.capturedTexts();
+		for(Gate& g : DAG) if(g.Name == cap[1]){
+			qDebug() << cap;
+			if(g.Type == CellInputPort) g.OutputPins[0].SetAttr(cap);
+			else if(g.Type == CellOutputPort) g.InputPins[0].SetAttr(cap);
+			else qDebug() << "ERRORR!!!!" << g.Name << " is not a port pin!"; 
+			break;
+		}
+		i++;
+	}
+
+	//Wires
+	regex.setPattern("WIRE (\\S+) (.*),(.*);");
+	while(regex.indexIn(lst[i]) != -1){
+		cap = regex.capturedTexts();
+		Wires[cap[1]].MinWireCapacitance = cap[2].toDouble();
+		Wires[cap[1]].MaxWireCapacitance = cap[3].toDouble();
+		i++;
+	}
+}
+void CalculateCapacitiveLoad(){
+	for(QMap<QString, Wire>::iterator it = Wires.begin(); it != Wires.end(); it++){
+		Gate* gptr = &DAG[it.value().InputGatePin.gIDX];
+		Pin* pptr = &gptr->OutputPins[it.value().InputGatePin.pIDX];
+		pptr->MinCapLoad = it.value().MinWireCapacitance;
+		pptr->MaxCapLoad = it.value().MaxWireCapacitance;
+		for(PinIndex pind : it.value().OutputGatePinList){
+			Gate* gt = &DAG[pind.gIDX];
+			Pin* pt = &gt->InputPins[pind.pIDX];
+			if(gt->Type == CellOutputPort)  {pptr->MaxCapLoad += pt->MaxCapLoad; pptr->MinCapLoad += pt->MinCapLoad;}
+			else  {pptr->MaxCapLoad += pt->MyCellPin->maxCap; pptr->MinCapLoad += pt->MyCellPin->minCap;}
+		}
+	}
+}
+void CalculateSlewRate(int gind){
+	if(vis[gind]) return;
+	vis[gind] = true;
+	if(DAG[gind].Type == CellInputPort) return;
+	for(Pin& pt : DAG[gind].OutputPins) pt.MinSlew = pt.MaxSlew = 0;
+	if(DAG[gind].InputPins.size() == 0) return;
+	for(Pin& pt : DAG[gind].InputPins){
+		PinIndex* pIndex = &Wires[pt.WireName].InputGatePin;
+		if(!vis[pIndex->gIDX]) CalculateSlewRate(pIndex->gIDX);
+		Gate* gptr = &DAG[pIndex->gIDX];
+		Pin* pptr = &gptr->OutputPins[pIndex->pIDX];
+		pt.MinSlew = pptr->MinSlew;
+		pt.MaxSlew = pptr->MaxSlew;
+	}
+	for(Pin& pt : DAG[gind].OutputPins){
+		pt.MinSlew = 1e9; pt.MaxSlew = -1e9;
+		for(TimingTable tt : pt.MyCellPin->SlewTable){
+			Pin* pptr = findPin(tt.RelatedTo, &DAG[gind].InputPins);
+			pt.MinSlew = min(pt.MinSlew, tt.getMin(pptr->MinSlew, pt.MinCapLoad));
+			pt.MinSlew = min(pt.MinSlew, tt.getMin(pptr->MaxSlew, pt.MinCapLoad));
+			pt.MinSlew = min(pt.MinSlew, tt.getMin(pptr->MinSlew, pt.MaxCapLoad));
+			pt.MinSlew = min(pt.MinSlew, tt.getMin(pptr->MaxSlew, pt.MaxCapLoad));
+			pt.MaxSlew = max(pt.MinSlew, tt.getMin(pptr->MinSlew, pt.MinCapLoad));
+			pt.MaxSlew = max(pt.MinSlew, tt.getMin(pptr->MaxSlew, pt.MinCapLoad));
+			pt.MaxSlew = max(pt.MinSlew, tt.getMin(pptr->MinSlew, pt.MaxCapLoad));
+			pt.MaxSlew = max(pt.MinSlew, tt.getMin(pptr->MaxSlew, pt.MaxCapLoad));
+		}
+	}
+}
+void CalculateDelay(int gind){
+	if(vis[gind]) return;
+	vis[gind] = true;
+	if(DAG[gind].Type == CellInputPort) return;
+	for(Pin& pt : DAG[gind].OutputPins) pt.MinDelay = pt.MaxDelay = 0;
+	if(DAG[gind].InputPins.size() == 0) return;
+	for(Pin& pt : DAG[gind].InputPins){
+		PinIndex* pIndex = &Wires[pt.WireName].InputGatePin;
+		if(!vis[pIndex->gIDX]) CalculateDelay(pIndex->gIDX);
+		Gate* gptr = &DAG[pIndex->gIDX];
+		Pin* pptr = &gptr->OutputPins[pIndex->pIDX];
+		pt.MinDelay = pptr->MinDelay;
+		pt.MaxDelay = pptr->MaxDelay;
+	}
+	for(Pin& pt: DAG[gind].OutputPins){
+		pt.MinDelay = 1e9; pt.MaxDelay = -1e9;
+		for(TimingTable tt : pt.MyCellPin->DelayTable){
+			Pin* pptr = findPin(tt.RelatedTo, &DAG[gind].InputPins);
+			pt.MinDelay = min(pt.MinDelay, pptr->MinDelay + tt.getMin(pptr->MinSlew, pt.MinCapLoad));
+			pt.MinDelay = min(pt.MinDelay, pptr->MinDelay + tt.getMin(pptr->MaxSlew, pt.MinCapLoad));
+			pt.MinDelay = min(pt.MinDelay, pptr->MinDelay + tt.getMin(pptr->MinSlew, pt.MaxCapLoad));
+			pt.MinDelay = min(pt.MinDelay, pptr->MinDelay + tt.getMin(pptr->MaxSlew, pt.MaxCapLoad));
+
+			pt.MaxDelay = max(pt.MinDelay, pptr->MaxDelay + tt.getMin(pptr->MinSlew, pt.MinCapLoad));
+			pt.MaxDelay = max(pt.MinDelay, pptr->MaxDelay + tt.getMin(pptr->MaxSlew, pt.MinCapLoad));
+			pt.MaxDelay = max(pt.MinDelay, pptr->MaxDelay + tt.getMin(pptr->MinSlew, pt.MaxCapLoad));
+			pt.MaxDelay = max(pt.MinDelay, pptr->MaxDelay + tt.getMin(pptr->MaxSlew, pt.MaxCapLoad));			
+		}
+	}
 }
 int main(){
 	ParseLiberty("Liberty.lib");
+	ParseNetList("mux_NetList.v");
+	ParseConstrain("mux_Constrain.v");
+	
+	CalculateCapacitiveLoad();
+	ClearVis(); for(int i = 0; i < DAG.size(); i++) if(!vis[i]) CalculateSlewRate(i);
+	ClearVis(); for(int i = 0; i < DAG.size(); i++) if(!vis[i]) CalculateDelay(i);
+
+	qDebug() << DAG;
+	qDebug() << Wires;
 }
