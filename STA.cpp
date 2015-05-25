@@ -170,12 +170,19 @@ public:
 	QString Name;
 	CellType Type;
 	CellClass* MyClass;	//Index
+	double Slack, MaxSetup;
 	QList<Pin> InputPins;
 	QList<Pin> OutputPins;
+	double getMaxDelay(){
+		double x = -1e9;
+		for(Pin p : InputPins) x = max(x, p.MaxDelay);
+		return x;
+	}
 };
 QDebug& operator<<(QDebug& o, const Gate& g){
 	if(g.Type == CellInputPort || g.Type == CellOutputPort) o << "Gate " << g.Name << "(" << g.Type << ") ";
 	else o << "Gate " << g.Name << "(" << g.Type << " " << g.MyClass->Name << ") ";
+	o << "Slack: " << g.Slack << "\n";
 	o << "Pins\n";
 	o << "InputPins: " << g.InputPins << "\n";
 	o << "OutputPins: " << g.OutputPins << "\n";
@@ -222,6 +229,7 @@ QList<CellClass> Class;
 QList<Gate> DAG;
 QList<bool> vis;
 QMap<QString, Wire> Wires;
+QMap<QString, double> ReqConstrain;
 
 void ClearVis(){
 	vis.clear();
@@ -233,11 +241,36 @@ CellClass* findClass(QString ClassName){
 			return &Class[i];
 	return 0;
 }
+Gate* findGate(QString GateName){
+	for(int i = 0; i < DAG.size(); i++)
+		if(DAG[i].Name == GateName)
+			return &DAG[i];
+	return 0;
+}
 Pin* findPin(QString PinName, QList<Pin>* PinList){
 	for(int i = 0; i < PinList->size(); i++)
 		if((*PinList)[i].Name == PinName)
 			return &(*PinList)[i];
 	return 0;
+}
+void PrintSlack(QTextStream& fout, Gate* gptr){
+	fout << "***************************************************************************************************\n";
+	fout << "Paths ending at " << gptr->Name << "of type " << (gptr->Type == CellInputPort || gptr->Type == CellOutputPort ? "Port" : gptr->MyClass->Name)<< "\n";
+	fout << "Name" << "Type" << "Delay" << "Acc" << "Slack\n";
+	for(Gate gt : DAG){	//Assuming only one output pin
+		if(gt.Slack == 1e9) continue;
+		if(gt.Type == CellOutputPort){
+			fout << gt.Name << "OutputPort" << gt.MaxSetup << gt.InputPins[0].MaxDelay + gt.MaxSetup << gt.Slack << "\n";
+		}
+		else if(gt.Type == CellInputPort){
+			fout << gt.Name << "InputPort" << gt.OutputPins[0].MaxDelay << gt.OutputPins[0].MaxDelay << gt.Slack << "\n";
+		}
+		else if(gt.Type == CellDFF || gt.Type == CellLatch){
+			Pin* Dpptr = findPin("D", &gt.InputPins);
+			fout << gt.Name << gt.MyClass->Name << gt.MaxSetup << Dpptr->MaxDelay+gt.MaxSetup << gt.Slack << "\n";
+		}
+		else fout << gt.Name << gt.MyClass->Name << gt.OutputPins[0].MaxDelay-gt.getMaxDelay() << gt.OutputPins[0].MaxDelay << gt.Slack << "\n";
+	}
 }
 LookUpTable ParseLUT(QString str){
 	QRegExp regex("", Qt::CaseSensitive);
@@ -259,6 +292,10 @@ LookUpTable ParseLUT(QString str){
 		for(int j = 0; j < ret.cols; j++)
 			ret.table[i][j] = tlst[k++].toDouble();
 	return ret;
+}
+void ClearSlack(){
+	for(Gate& gt : DAG)
+		gt.Slack = 1e9;
 }
 void ParseLiberty(const char* fpath){
 	//ParseNetList("mux_NetList.v");
@@ -448,6 +485,7 @@ void ParseNetList(const char* fpath){
 
 	int i = 0;
 	Wire wt; Gate gt; Pin pt;
+	gt.Slack = 0;
 	pt.MinDelay		= 0;
 	pt.MaxDelay		= 0;
 	pt.MinSlew 		= 0;
@@ -547,9 +585,8 @@ void ParseConstrain(const char* fpath){
 	while(regex.indexIn(lst[i]) != -1){
 		cap = regex.capturedTexts();
 		for(Gate& g : DAG) if(g.Name == cap[1]){
-			qDebug() << cap;
 			if(g.Type == CellInputPort) g.OutputPins[0].SetAttr(cap);
-			else if(g.Type == CellOutputPort) g.InputPins[0].SetAttr(cap);
+			else if(g.Type == CellOutputPort) {g.InputPins[0].SetAttr(cap); g.MaxSetup = cap[3].toDouble();}
 			else qDebug() << "ERRORR!!!!" << g.Name << " is not a port pin!"; 
 			break;
 		}
@@ -562,6 +599,13 @@ void ParseConstrain(const char* fpath){
 		cap = regex.capturedTexts();
 		Wires[cap[1]].MinWireCapacitance = cap[2].toDouble();
 		Wires[cap[1]].MaxWireCapacitance = cap[3].toDouble();
+		i++;
+	}
+
+	regex.setPattern("REQ (\\S+) (.*);");
+	while(regex.indexIn(lst[i]) != -1){
+		cap = regex.capturedTexts();
+		ReqConstrain[cap[1]] = cap[2].toDouble();
 		i++;
 	}
 }
@@ -638,15 +682,65 @@ void CalculateDelay(int gind){
 		}
 	}
 }
+void CalculateSlack(PinIndex pIndex, double req){
+	Gate* gt = &DAG[pIndex.gIDX];
+	Pin* pt = &gt->OutputPins[pIndex.pIDX];
+	gt->Slack = req - pt->MaxDelay;
+	if(gt->Type == CellInputPort) return;
+	for(TimingTable tt : pt->MyCellPin->DelayTable){
+		Pin* pptr = findPin(tt.RelatedTo, &gt->InputPins);
+		double mx = -1e9;
+		mx = max(mx, tt.getMin(pptr->MinSlew, pt->MinCapLoad));
+		mx = max(mx, tt.getMin(pptr->MaxSlew, pt->MinCapLoad));
+		mx = max(mx, tt.getMin(pptr->MinSlew, pt->MaxCapLoad));
+		mx = max(mx, tt.getMin(pptr->MaxSlew, pt->MaxCapLoad));
+		if(gt->Type == CellDFF || gt->Type == CellLatch) gt->MaxSetup = mx;
+		CalculateSlack(Wires[pptr->WireName].InputGatePin, req - mx);
+	}
+}
 int main(){
+	QString TestCase = "mac";
+	QFile outFile((TestCase + QString("_Report")).toStdString().c_str()); outFile.open(QFile::WriteOnly); QTextStream fout(&outFile); fout.setFieldWidth(15);
 	ParseLiberty("Liberty.lib");
-	ParseNetList("mux_NetList.v");
-	ParseConstrain("mux_Constrain.v");
+	ParseNetList((TestCase + QString("_NetList.v")).toStdString().c_str());
+	ParseConstrain((TestCase + QString("_Constrain.v")).toStdString().c_str());
+	//req should be refactored to skew.	
+	//if required time is not indicated in the constrain file, it is assumed to be the clock period.
+	//It is possible to comment these couple of lines to not calculate the slack with respect to these paths.
+	for(Gate& gt : DAG)
+		if(gt.Type == CellDFF || gt.Type == CellLatch || gt.Type == CellOutputPort)
+			if(!ReqConstrain.contains(gt.Name))
+				ReqConstrain[gt.Name] = 0;
 	
 	CalculateCapacitiveLoad();
 	ClearVis(); for(int i = 0; i < DAG.size(); i++) if(!vis[i]) CalculateSlewRate(i);
 	ClearVis(); for(int i = 0; i < DAG.size(); i++) if(!vis[i]) CalculateDelay(i);
+	//Calculating Setup Slack
+	for(QMap<QString, double>::iterator it = ReqConstrain.begin(); it != ReqConstrain.end(); it++){
+		ClearSlack();
+		Gate* gt = findGate(it.key());
+		if(gt->Type == CellDFF || gt->Type == CellLatch){
+			Pin* CLKpptr = findPin("CLK", &gt->InputPins);
+			Pin* Dpptr = findPin("D", &gt->InputPins);
+			double maxSetup = -1e9;
+			maxSetup = max(maxSetup, gt->MyClass->SetupTiming.getMax(CLKpptr->MaxSlew, Dpptr->MaxSlew));
+			maxSetup = max(maxSetup, gt->MyClass->SetupTiming.getMax(CLKpptr->MinSlew, Dpptr->MaxSlew));
+			maxSetup = max(maxSetup, gt->MyClass->SetupTiming.getMax(CLKpptr->MaxSlew, Dpptr->MinSlew));
+			maxSetup = max(maxSetup, gt->MyClass->SetupTiming.getMax(CLKpptr->MinSlew, Dpptr->MinSlew));
+			gt->MaxSetup = maxSetup;
+			gt->Slack = -(Dpptr->MaxDelay + gt->MaxSetup) + (ClockPeriod + it.value());
+			CalculateSlack(Wires[Dpptr->WireName].InputGatePin, ClockPeriod + it.value() - maxSetup);
+		}
+		else if(gt->Type == CellOutputPort){
+			gt->Slack = it.value() - gt->InputPins[0].MaxDelay - gt->MaxSetup;
+			CalculateSlack(Wires[gt->InputPins[0].WireName].InputGatePin, it.value() - gt->InputPins[0].MaxDelay);	//Port pin
+		}
 
-	qDebug() << DAG;
-	qDebug() << Wires;
+		//Print Slack Report
+		PrintSlack(fout, gt);
+	}
+
+	//qDebug() << DAG;
+	//qDebug() << DAG;
+	//qDebug() << Wires;
 }

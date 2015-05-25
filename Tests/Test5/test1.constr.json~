@@ -1,0 +1,79 @@
+{
+  
+  "input_slew": {
+    "___input_clk": {
+      "rise_transition": 0.05,
+      "fall_transition": 0.03
+    },
+    "___input_a[0]": {
+      "rise_transition": 0.05,
+      "fall_transition": 0.03
+    },
+    "___input_a[1]": {
+      "rise_transition": 0.05,
+      "fall_transition": 0.03
+    },
+    "___input_a[2]": {
+      "rise_transition": 0.05,
+      "fall_transition": 0.03
+    },
+    "___input_a[3]": {
+      "rise_transition": 0.05,
+      "fall_transition": 0.03
+    },
+    "___input_a[4]": {
+      "rise_transition": 0.05,
+      "fall_transition": 0.03
+    },
+    "___input_a[5]": {
+      "rise_transition": 0.05,
+      "fall_transition": 0.03
+    },
+    "___input_a[6]": {
+      "rise_transition": 0.05,
+      "fall_transition": 0.03
+    }
+  },
+  "input_delays": {
+    "___input_a[0]": {
+      "cell_rise": 0.5,
+      "cell_fall": 0.3
+    },
+    "___input_a[1]": {
+      "cell_rise": 0.5,
+      "cell_fall": 0.3
+    },
+    "___input_a[2]": {
+      "cell_rise": 0.5,
+      "cell_fall": 0.3
+    },
+    "___input_a[3]": {
+      "cell_rise": 0.5,
+      "cell_fall": 0.3
+    },
+    "___input_a[4]": {
+      "cell_rise": 0.5,
+      "cell_fall": 0.3
+    },
+    "___input_a[5]": {
+      "cell_rise": 0.5,
+      "cell_fall": 0.3
+    },
+    "___input_a[6]": {
+      "cell_rise": 0.5,
+      "cell_fall": 0.3
+    }
+  },
+  "output_capacitance_load": {
+    "___output_b": {
+      "rise_capacitance": 0.6,
+      "fall_capacitance": 0.4
+    }
+  },
+  "output_delays": {
+    "___output_b": {
+      "cell_rise": 0.2,
+      "cell_fall": 0.3
+    }
+  }
+}
