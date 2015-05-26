@@ -727,13 +727,13 @@ int main(){
 			maxSetup = max(maxSetup, gt->MyClass->SetupTiming.getMax(CLKpptr->MinSlew, Dpptr->MaxSlew));
 			maxSetup = max(maxSetup, gt->MyClass->SetupTiming.getMax(CLKpptr->MaxSlew, Dpptr->MinSlew));
 			maxSetup = max(maxSetup, gt->MyClass->SetupTiming.getMax(CLKpptr->MinSlew, Dpptr->MinSlew));
+			CalculateSlack(Wires[Dpptr->WireName].InputGatePin, ClockPeriod + it.value() - maxSetup);
 			gt->MaxSetup = maxSetup;
 			gt->Slack = -(Dpptr->MaxDelay + gt->MaxSetup) + (ClockPeriod + it.value());
-			CalculateSlack(Wires[Dpptr->WireName].InputGatePin, ClockPeriod + it.value() - maxSetup);
 		}
 		else if(gt->Type == CellOutputPort){
-			gt->Slack = it.value() - gt->InputPins[0].MaxDelay - gt->MaxSetup;
 			CalculateSlack(Wires[gt->InputPins[0].WireName].InputGatePin, it.value() - gt->InputPins[0].MaxDelay);	//Port pin
+			gt->Slack = it.value() - gt->InputPins[0].MaxDelay - gt->MaxSetup;
 		}
 
 		//Print Slack Report
